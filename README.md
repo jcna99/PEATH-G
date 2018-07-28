@@ -1,27 +1,25 @@
-# PEATH-G
-# PEATH: Probabilistic Evolutionary Algorithm with Toggling for Haplotyping
+# PEATH/G: Fast Single-Individual Haplotyping method using GPGPU
 
-PEATH is a novel SIH algorithm based on the estimation of distribution algorithm (EDA).
-It implementes the algorithm proposed in:
+PEATH/G is a GPGPU version of PEATH, a novel SIH algorithm based on the estimation of distribution algorithm (EDA).
+It implementes the method proposed in:
 ```
-J.C. Na et al., PEATH: Single Individual Haplotyping by Probabilistic Evolutionary Algorithm with Toggling for Haplotyping,
-submitted to Bioinformatics.
+J.C. Na et al., PEATH/G: Fast Single-Individual Haplotyping method using GPGPU, submitted to TBC/BIOINFO 2018.
 ```
 
-## Compiling PEATH
+## Compiling PEATH/G
 
-After downloading the CPP code, complie PATH by using
+After downloading .cu code, complie the source code using NVCC compiler
 
 ```
-g++ PEATH.cpp -o PEATH -O2 -std=c++11
+nvcc -gencode=arch=compute_30,code=\"sm_30,compute_30\" --use-local-env -ccbin "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\bin\HostX86\x64" -x cu  -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\include"     --keep-dir x64\Release -maxrregcount=0  --machine 64 --compile -cudart static     -DWIN32 -DWIN64 -D_CRT_SECURE_NO_WARNINGS -DNDEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /O2 /FS /Zi  /MD " -o x64\Release\PEATH-cuda.cu.obj PEATH-cuda.cu
 ```
 
 ## Running PEATH
 
-To run PEATH, use the following command:
+To run PEATH/G, use the following command:
 
 ```
-./PEATH <input_file> <output_file> (param)
+./PEATH-cuda <input_file> <output_file> (param)
 ```
 
 <input_file> is an input matrix for sequence reads and
@@ -30,33 +28,5 @@ To run PEATH, use the following command:
 (param) is an optional parameter for time/accuracy tradeoff which is a positive integer (default: 50).
 
 ```
-ex) ./PEATH chr1.matrix.SORTED chr1.haplo
+ex) ./PEATH-cuda chr1.matrix.SORTED chr1.haplo
 ```
-
-## Evaluation
-
-To evaluate a haplotype, use the evaluation code.
-
-```
-g++ eval.cpp -o eval -O2
-./eval <matrix_file> <answer_file> <haplo_file> <output_file> (mask_file)
-```
-
-<matrix_file> is a matrix for sequence reads,
-<answer_file> is an answer file,
-<haplo_file> is a haplotype file,
-<output_file> is an output file containing evaluation results.
-
-(mask_file) is a mask haplo file which is optional.
-
-```
-ex) ./eval chr1.matrix.SORTED chr1.valid.master chr1.haplo chr1.eval
-```
-
-## Data sets
-
-We used three data sets for experiments.
-1. Fosmid dataset (Duitama et al. 2012) which has been widely used to assess and compare SIH algorithms.
-2. Simulated dataset which was generated based on Fosmid data.
-3. HuRef dataset (Levy et al. 2007) which has been the most widely used in SIH related articles.
-

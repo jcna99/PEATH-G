@@ -19,7 +19,7 @@ nvcc -gencode=arch=compute_30,code=\"sm_30,compute_30\" --use-local-env -ccbin "
 To run PEATH/G, use the following command:
 
 ```
-./PEATH-cuda <input_file> <output_file> (param)
+./PEATH-G <input_file> <output_file> (param)
 ```
 
 <input_file> is an input matrix for sequence reads and
@@ -28,5 +28,5 @@ To run PEATH/G, use the following command:
 (param) is an optional parameter for time/accuracy tradeoff which is a positive integer (default: 50).
 
 ```
-ex) ./PEATH-cuda chr1.matrix.SORTED chr1.haplo
+ex) ./PEATH-G chr1.matrix.SORTED chr1.haplo
 ```

@@ -9,9 +9,9 @@ J.C. Na et al., PEATH/G: Fast Single-Individual Haplotyping method using GPGPU, 
 ## System Environment 
 
 We have tested for compiling and running the code in conventional desktop computer as follows:
-Hardware: Intel Core i5, 16GB RAM, and NVIDIA GeForce GTX950 graphics card.
-OS: Windows 10 64-bits
-IDE: Visual Studio 2017 integrated with CUDA toolkit 9.2
+- Hardware: Intel Core i5, 16GB RAM, and NVIDIA GeForce GTX950 graphics card.
+- OS: Windows 10 64-bits
+- IDE: Visual Studio 2017 integrated with CUDA toolkit 9.2
 
 ## Compiling PEATH/G
 
@@ -37,4 +37,8 @@ To run PEATH/G, use the following command:
 ```
 ex) ./PEATH-G chr1.matrix.SORTED chr1.haplo
 ```
+
+## Data Set for testing
+We used the data set for testing the performance(running time) of our implementation
+1. Fosmid dataset (Duitama et al. 2012) which has been widely used to assess and compare SIH algorithms.
 

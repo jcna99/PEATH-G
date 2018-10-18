@@ -6,6 +6,13 @@ It implementes the method proposed in:
 J.C. Na et al., PEATH/G: Fast Single-Individual Haplotyping method using GPGPU, submitted to TBC/BIOINFO 2018.
 ```
 
+## System Environment 
+
+We have tested for compiling and running the code in conventional desktop computer as follows:
+Hardware: Intel Core i5, 16GB RAM, and NVIDIA GeForce GTX950 graphics card.
+OS: Windows 10 64-bits
+IDE: Visual Studio 2017 integrated with CUDA toolkit 9.2
+
 ## Compiling PEATH/G
 
 After downloading .cu code, complie the source code using NVCC compiler
@@ -30,3 +37,4 @@ To run PEATH/G, use the following command:
 ```
 ex) ./PEATH-G chr1.matrix.SORTED chr1.haplo
 ```
+

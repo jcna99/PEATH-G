@@ -7,22 +7,17 @@
 #include <thrust/sort.h>
 
 
-#include <cstdio>
-#include <cstdlib>
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <algorithm>
-#include <random>
 #include <chrono>
 #include <string.h>
 
 //#define __DEBUG__	// to create files for debugging
+
 #define __PRINT_RESULT__	// to create files for debugging
 
 ////////////////////////////////
-
-#define __CUDA__	1		// CPU: 0 , CUDA: 1
 
 #define CU_MAX_BSIZE	32		// cuda block dimension - x
 
@@ -49,7 +44,6 @@
 using namespace std;
 
 typedef unsigned int uint;
-
 
 typedef struct {			// subfragments
 	uint Moffset = 0;				// offset of starting position in Allele & Qual Matrix Data
@@ -105,7 +99,6 @@ void __syncthreads();
 
 void cudaCheckSync(const char func[])
 {
-#if __CUDA__ == 1
 	cudaError_t cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "[%s] addKernel launch failed: %s\n", func, cudaGetErrorString(cudaStatus));
@@ -116,7 +109,6 @@ void cudaCheckSync(const char func[])
 		fprintf(stderr, "[%s] cudaDeviceSynchronize returned error code %d after launching addKernel!\n", func, cudaStatus);
 		exit(1);
 	}
-#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -441,293 +433,155 @@ double calc_sumD_single_tog(double *haplo_sumD, const char *haplo_seq, DFragType
 ////////////////////////////////////////////////////////////////////////////
 
 
-#if __CUDA__ == 0
-void init_randstates(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void init_randstates(
-#endif
 	uint seed, curandState *states)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PBx{ phasing_iter, NumBlk, 1 };
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	//for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	//for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block
-	//for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-	//	for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) 	// one block is processed by multiple threads
-
-	default_random_engine generator(seed);
-	uniform_real_distribution<double> distribution(0.0, 1.0);
-
-#elif __CUDA__ == 1
-
 	uint id = blockIdx.x * gridDim.y + blockIdx.y;
 	curand_init(seed, id, 0, &states[id]);
-
-#endif
-
 }
 
 
-#if __CUDA__ == 0
-void GA_init(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void GA_init(
-#endif
 	IndvDType *d_Population, char *d_Pop_seq,
 	const BlockType *d_blocks, const uint NumPos, const uint NumBlk, const uint MaxBlkLen)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PBx{ phasing_iter, NumBlk, 1 };
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) 	// one Population is processed by multiple threads
-#endif
-		{
+	BlockType block = d_blocks[blockIdx.y];
+	IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
 
-			BlockType block = d_blocks[blockIdx.y];
-			IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
-
-			for (uint i = threadIdx.x; i < POPSIZE; i += blockDim.x) 	// relative indv_id in cur pop
-				Population[i].stx_pos = i * block.length;
-			
-		}
-
+	for (uint i = threadIdx.x; i < POPSIZE; i += blockDim.x) 	// relative indv_id in cur pop
+		Population[i].stx_pos = i * block.length;
 }
 
-#if __CUDA__ == 0
-void GA_1stGen(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void GA_1stGen(
-#endif
 	IndvDType *d_Population, char *d_Pop_seq, curandState *d_randstates,
 	const BlockType *d_blocks, const uint NumPos, const uint NumBlk)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PBx{ phasing_iter, NumBlk, 1 };
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) // one Population is processed by multiple threads
-#endif
-		{
+	BlockType block = d_blocks[blockIdx.y];
+	IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
+	char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
 
-			BlockType block = d_blocks[blockIdx.y];
-			IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
-			char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
+	uint rid = blockIdx.x * gridDim.y + blockIdx.y;
 
-			uint rid = blockIdx.x * gridDim.y + blockIdx.y;
+	__shared__	uint localSeed;
 
-#if __CUDA__ == 1
-			__shared__	uint localSeed;
+	if( threadIdx.x == 0 )
+		localSeed = curand(&d_randstates[rid]);
 
-			if( threadIdx.x == 0 )
-				localSeed = curand(&d_randstates[rid]);
+	__syncthreads();
 
-			__syncthreads();
+	curandState localState;
+	curand_init(localSeed, threadIdx.x, 0, &localState);
 
-			curandState localState;
-			curand_init(localSeed, threadIdx.x, 0, &localState);
-#endif
-
-			for (uint indv = 0; indv < POPSIZE; ++indv) {
-				char *indv_seq = Pop_seq + Population[indv].stx_pos;
+	for (uint indv = 0; indv < POPSIZE; ++indv) {
+		char *indv_seq = Pop_seq + Population[indv].stx_pos;
 				
-				for (uint i = threadIdx.x; i < block.length; i += blockDim.x) {
-					if (curand_uniform(&localState) < 0.5)
-						indv_seq[i] = '1';
-					else
-						indv_seq[i] = '0';
-				}
-			}
-
+		for (uint i = threadIdx.x; i < block.length; i += blockDim.x) {
+			if (curand_uniform(&localState) < 0.5)
+				indv_seq[i] = '1';
+			else
+				indv_seq[i] = '0';
 		}
+	}
 }
 
-#if __CUDA__ == 0
-void GA_nextGen(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void GA_nextGen(
-#endif
 	IndvDType *d_Population, char *d_Pop_seq, curandState *d_randstates,
 	const uint *d_GAcnt, const BlockType *d_blocks,
 	const uint NumPos, const uint NumBlk, const uint g_iter)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PBx{ phasing_iter, NumBlk, 1 };
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) // one Population is processed by multiple threads
-#endif
-		{
+	BlockType block = d_blocks[blockIdx.y];
+	IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
+	char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
+	const uint *GAcnt = d_GAcnt + (blockIdx.x * NumPos + block.start_pos);
 
-			BlockType block = d_blocks[blockIdx.y];
-			IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
-			char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
-			const uint *GAcnt = d_GAcnt + (blockIdx.x * NumPos + block.start_pos);
+	uint rid = blockIdx.x * gridDim.y + blockIdx.y;
 
-			uint rid = blockIdx.x * gridDim.y + blockIdx.y;
+	__shared__	uint localSeed;
 
-#if __CUDA__ == 1
-			__shared__	uint localSeed;
+	if (threadIdx.x == 0)
+		localSeed = curand(&d_randstates[rid]);
 
-			if (threadIdx.x == 0)
-				localSeed = curand(&d_randstates[rid]);
+	__syncthreads();
 
-			__syncthreads();
+	curandState localState;
+	curand_init(localSeed, threadIdx.x, 0, &localState);
 
-			curandState localState;
-			curand_init(localSeed, threadIdx.x, 0, &localState);
-#endif
+	for (uint indv = (POPSIZE - OFFSIZE); indv < POPSIZE; ++indv) {
+		char *indv_seq = Pop_seq + Population[indv].stx_pos;
 
-			for (uint indv = (POPSIZE - OFFSIZE); indv < POPSIZE; ++indv) {
-				char *indv_seq = Pop_seq + Population[indv].stx_pos;
+		for (uint i = threadIdx.x; i < block.length; i += blockDim.x) { // position inside of haplotype block
+			double prob = (double)GAcnt[i] / (POPSIZE - OFFSIZE);
 
-				for (uint i = threadIdx.x; i < block.length; i += blockDim.x) { // position inside of haplotype block
-					double prob = (double)GAcnt[i] / (POPSIZE - OFFSIZE);
-
-					if (curand_uniform(&localState) < prob)
-						indv_seq[i] = '1';
-					else
-						indv_seq[i] = '0';
-				}
-			}
-
+			if (curand_uniform(&localState) < prob)
+				indv_seq[i] = '1';
+			else
+				indv_seq[i] = '0';
 		}
+	}
 }
 
-
-#if __CUDA__ == 0
-void GA_cnt_comp(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void GA_cnt_comp(
-#endif
 	IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt,
 	const BlockType *d_blocks, const int NumPos, const int NumBlk)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PBx { phasing_iter, NumBlk, 1 };
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) // one block is processed by multiple threads
-#endif
-		{
-
-			BlockType block = d_blocks[blockIdx.y];
-			IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
-			char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
-			uint *GAcnt = d_GAcnt + (blockIdx.x * NumPos + block.start_pos);
+	BlockType block = d_blocks[blockIdx.y];
+	IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
+	char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
+	uint *GAcnt = d_GAcnt + (blockIdx.x * NumPos + block.start_pos);
 
 
-			for (uint i = threadIdx.x; i < block.length; i += blockDim.x) {	// position inside of haplotype block
-				GAcnt[i] = 0;
-				for (uint j = 0; j < POPSIZE - OFFSIZE; ++j) {
-					char *indv_seq = Pop_seq + Population[j].stx_pos;
-					GAcnt[i] += indv_seq[i] - '0';
-				}
-			}
-
+	for (uint i = threadIdx.x; i < block.length; i += blockDim.x) {	// position inside of haplotype block
+		GAcnt[i] = 0;
+		for (uint j = 0; j < POPSIZE - OFFSIZE; ++j) {
+			char *indv_seq = Pop_seq + Population[j].stx_pos;
+			GAcnt[i] += indv_seq[i] - '0';
 		}
+	}
 }
 
-#if __CUDA__ == 0
-void GA_pop_eval(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void GA_pop_eval(
-#endif
 	IndvDType *d_Population, char *d_Pop_seq,
 	const char *AlleleData, const double *QualData, const SubFragType *SubFragments, const FragType *Fragments,
 	const BlockType *d_blocks, const uint NumPos, const uint NumBlk, const uint num_indv_per_ph)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PBpth{ phasing_iter, NumBlk, 1};
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block 
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) 	// one Population is processed by multiple threads
-#endif
-		{
+	BlockType block = d_blocks[blockIdx.y];
+	IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
+	char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
 
-			BlockType block = d_blocks[blockIdx.y];
-			IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
-			char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
+	Population += (POPSIZE - num_indv_per_ph); 
 
-			Population += (POPSIZE - num_indv_per_ph); 
-
-			for (uint i = threadIdx.x; i < num_indv_per_ph; i += blockDim.x) 	// relative indv_id in cur pop
-				calc_sumD(&Population[i].sumD, Pop_seq + Population[i].stx_pos,
-					NULL, block, false,	AlleleData, QualData, SubFragments, Fragments);
-
-		}
+	for (uint i = threadIdx.x; i < num_indv_per_ph; i += blockDim.x) 	// relative indv_id in cur pop
+		calc_sumD(&Population[i].sumD, Pop_seq + Population[i].stx_pos,
+			NULL, block, false,	AlleleData, QualData, SubFragments, Fragments);
 }
 
-#if __CUDA__ == 0
-void GA_pop_sort(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void GA_pop_sort(
-#endif
 	IndvDType *d_Population, const uint NumBlk)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PBx{ phasing_iter, NumBlk, 1 };
-	dim3 threadIdx;		// blockDim = {1, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block 
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) 	// one Population is processed by multiple threads
-#endif
-		{
+	IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
 
-			IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
-
-			thrust::sort(Population, Population + POPSIZE, compare_sumD_val);
-
-		}
+	thrust::sort(Population, Population + POPSIZE, compare_sumD_val);
 }
 
 //gathering the best haplotype in the population of each phasing iteration
-#if __CUDA__ == 0
-void gather_pop0(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void gather_pop0(
-#endif
 	double *d_Tog_sumD, char *d_Tog_seq,
 	const IndvDType *d_Population, const char *d_Pop_seq, const BlockType *d_blocks,
 	const uint NumPos, const uint NumBlk, const uint MaxBlkLen)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_PB_{ phasing_iter, NumBlk, 1};
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x)  // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y)  // FOR EACH haplotype block
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) 	// each block is grouped by thread
-#endif
-		{
+	BlockType block = d_blocks[blockIdx.y];
+	const IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
+	const char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
+	double *Tog_sumD = d_Tog_sumD + blockIdx.x * NumBlk + blockIdx.y;
+	char *Tog_seq = d_Tog_seq + blockIdx.x * NumPos + block.start_pos;
 
-			BlockType block = d_blocks[blockIdx.y];
-			const IndvDType *Population = d_Population + (blockIdx.x * NumBlk + blockIdx.y) * POPSIZE;
-			const char *Pop_seq = d_Pop_seq + (blockIdx.x * NumPos + block.start_pos) * POPSIZE;;
-			double *Tog_sumD = d_Tog_sumD + blockIdx.x * NumBlk + blockIdx.y;
-			char *Tog_seq = d_Tog_seq + blockIdx.x * NumPos + block.start_pos;
+	const char *pop0_seq = Pop_seq + Population[0].stx_pos;
 
-			const char *pop0_seq = Pop_seq + Population[0].stx_pos;
+	for (uint i = threadIdx.x; i < block.length; i += blockDim.x)
+		Tog_seq[i] = pop0_seq[i];
 
-			for (uint i = threadIdx.x; i < block.length; i += blockDim.x)
-				Tog_seq[i] = pop0_seq[i];
-
-			if (threadIdx.x == 0)
-				*Tog_sumD = Population[0].sumD;			// copy sumD
-
-		}
+	if (threadIdx.x == 0)
+		*Tog_sumD = Population[0].sumD;			// copy sumD
 }
 
 //
@@ -743,6 +597,8 @@ void GA(IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt, curandState_t *
 {
 
 	uint cu_bsize = CU_MAX_BSIZE;
+//	uint cu_bsize = CB_SIZE;
+
 
 	dim3 bDim = { cu_bsize, 1 , 1 };
 
@@ -750,43 +606,26 @@ void GA(IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt, curandState_t *
 
 	uint seed = chrono::system_clock::now().time_since_epoch().count();
 
-#if __CUDA__ == 0
-	init_randstates(1, bDim,
-#elif __CUDA__ == 1
 	init_randstates << < gDim_PBx, 1 >> > (		// initialize random seeds
-#endif
 		seed, d_randstates);
 
 	cudaCheckSync("GA_randstates");
 
 
-#if __CUDA__ == 0
-	GA_init(gDim_PBx, { 1,1,1 },
-#elif __CUDA__ == 1
 	GA_init << < gDim_PBx, bDim >> > (			// almost same
-#endif
 		d_Population, d_Pop_seq,
 		d_blocks, NumPos, NumBlk, MaxBlkLen);
 
 	cudaCheckSync("GA_init");
 
 
-#if __CUDA__ == 0
-	GA_1stGen(gDim_PBx, bDim,
-#elif __CUDA__ == 1
 	GA_1stGen << < gDim_PBx, bDim >> > (		// faster 
-#endif
 		d_Population, d_Pop_seq, d_randstates, d_blocks, NumPos, NumBlk);
 
 	cudaCheckSync("GA_1stGen");
 
 
-	gDim_PBx = { phasing_iter, NumBlk, 1 };
-#if __CUDA__ == 0
-	GA_pop_eval(gDim_PBx, bDim,
-#elif __CUDA__ == 1
 	GA_pop_eval << < gDim_PBx, bDim >> > (			// slower (a little)
-#endif
 		d_Population, d_Pop_seq,
 		d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_blocks,
 		NumPos, NumBlk, POPSIZE);
@@ -794,12 +633,7 @@ void GA(IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt, curandState_t *
 	cudaCheckSync("GA_pop_eval");
 
 
-	gDim_PBx = { phasing_iter, NumBlk, 1 };
-#if __CUDA__ == 0
-	GA_pop_sort(gDim_PBx, { 1,1,1 },
-#elif __CUDA__ == 1
 	GA_pop_sort << < gDim_PBx, 1 >> > (		// faster
-#endif
 		d_Population, NumBlk);
 
 	cudaCheckSync("GA_pop_sort");
@@ -808,34 +642,20 @@ void GA(IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt, curandState_t *
 	uint g_iter = G_ITER;		// generation number of GA
 	while (g_iter--) {
 
-			gDim_PBx = { phasing_iter, NumBlk, 1 };
-#if __CUDA__ == 0
-			GA_cnt_comp(gDim_PBx, bDim,
-#elif __CUDA__ == 1
 			GA_cnt_comp << < gDim_PBx, bDim >> > (		// faster (quite)
-#endif
 				d_Population, d_Pop_seq, d_GAcnt, d_blocks, NumPos, NumBlk);
 
 			cudaCheckSync("GA_cnt_comp");
 
 
-#if __CUDA__ == 0
-			GA_nextGen(gDim_PBx, bDim,
-#elif __CUDA__ == 1
 			GA_nextGen << < gDim_PBx, bDim >> > (	// faster (very much X6)
-#endif
 				d_Population, d_Pop_seq, d_randstates,
 				d_GAcnt, d_blocks, NumPos, NumBlk, g_iter );
 			
 			cudaCheckSync("GA_nextGen");
 
 
-			gDim_PBx = { phasing_iter, NumBlk, 1 };
-#if __CUDA__ == 0
-			GA_pop_eval(gDim_PBx, bDim,
-#elif __CUDA__ == 1
 			GA_pop_eval << < gDim_PBx, bDim >> > (
-#endif
 				d_Population, d_Pop_seq, 
 				d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_blocks,
 				NumPos, NumBlk, OFFSIZE);
@@ -843,12 +663,7 @@ void GA(IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt, curandState_t *
 			cudaCheckSync("GA_pop_eval");
 
 
-			gDim_PBx = { phasing_iter, NumBlk, 1 };
-#if __CUDA__ == 0
-			GA_pop_sort(gDim_PBx, { 1,1,1 },
-#elif __CUDA__ == 1
 			GA_pop_sort << < gDim_PBx, 1 >> > (		// faster
-#endif
 				d_Population, NumBlk);
 
 			cudaCheckSync("GA_pop_sort");
@@ -857,12 +672,7 @@ void GA(IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt, curandState_t *
 
 
 
-	gDim_PBx = { phasing_iter, NumBlk, 1 };
-#if __CUDA__ == 0
-	gather_pop0(gDim_PBx, bDim,
-#elif __CUDA__ == 1
 	gather_pop0 << < gDim_PBx, bDim >> > (
-#endif
 		d_Tog_sumD, d_Tog_seq, d_Population, d_Pop_seq,
 		d_blocks, NumPos, NumBlk, MaxBlkLen	);
 
@@ -877,120 +687,71 @@ void GA(IndvDType *d_Population, char *d_Pop_seq, uint *d_GAcnt, curandState_t *
 // Toggling for range switch
 // return 1 if better soultion is found
 //
-#if __CUDA__ == 1
 // this function is run by MULTI thread
 __device__
-#endif
 int range_switch_toggling_thread(
-#if __CUDA__ == 0
-	const dim3 gridDim, const dim3 blockDim,
-#endif
 	double *haplo_sumD, char *haplo_seq, DFragType *DFrag, const BlockType &block,
 	double sh_bestSum[], int sh_bestPos[],
 	const char *d_AlleleData, const double *d_QualData, const SubFragType *d_SubFragments, const FragType *d_Fragments,
 	const FragsForPosType *d_FragsForPos, const uint NumFrag, const uint phasing_iter)
 {
-#if __CUDA__ == 0
-	dim3 threadIdx = { 1, 1, 1 };
-#endif
-
 	uint thIdx = threadIdx.x;	// index for shared memory
 	double bestSum, tmpSum;
 	int bestPos, rval = 0;
 	bool isImp;
 
 	do {
-
-#if __CUDA__ == 0
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-			thIdx = threadIdx.x;
-#endif
-
-			// 1. compute sumD & DFrag;
-			isImp = false;
-			if (thIdx == 0) {
-				calc_sumD(haplo_sumD, haplo_seq, DFrag, block, true,
-					d_AlleleData, d_QualData, d_SubFragments, d_Fragments);	// update DFrag array for the current haplotype sequence
-			}
-
-#if __CUDA__ == 0
+		// 1. compute sumD & DFrag;
+		isImp = false;
+		if (thIdx == 0) {
+			calc_sumD(haplo_sumD, haplo_seq, DFrag, block, true,
+				d_AlleleData, d_QualData, d_SubFragments, d_Fragments);	// update DFrag array for the current haplotype sequence
 		}
-#elif __CUDA__ == 1
-			__syncthreads();
-#endif
+		__syncthreads();
 
 
-#if __CUDA__ == 0
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-			thIdx = threadIdx.x;
-#endif
+		// 2. compute sumD in each toggled position계산 해서 최소값 찾기 (paralled by thread)
+		bestSum = *haplo_sumD;
+		bestPos = -1;
 
-			// 2. compute sumD in each toggled position계산 해서 최소값 찾기 (paralled by thread)
-			bestSum = *haplo_sumD;
-			bestPos = -1;
+		for (uint i = thIdx; i < block.length; i += blockDim.x) {
 
-			for (uint i = thIdx; i < block.length; i += blockDim.x) {
+			tmpSum = calc_sumD_range_tog(haplo_sumD, haplo_seq, DFrag, block, i, false,
+				d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos); // DFrag array & haplo are NOT updated
 
-				tmpSum = calc_sumD_range_tog(haplo_sumD, haplo_seq, DFrag, block, i, false,
-					d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos); // DFrag array & haplo are NOT updated
-
-				if (bestSum > tmpSum) {
-					bestSum = tmpSum;
-					bestPos = i;
-				}
+			if (bestSum > tmpSum) {
+				bestSum = tmpSum;
+				bestPos = i;
 			}
-
-			sh_bestSum[thIdx] = bestSum;
-			sh_bestPos[thIdx] = bestPos;
-
-#if __CUDA__ == 0
 		}
-#elif __CUDA__ == 1
-			__syncthreads();
-#endif
+
+		sh_bestSum[thIdx] = bestSum;
+		sh_bestPos[thIdx] = bestPos;
+
+		__syncthreads();
 
 
 		// 3. find the best sumD in all threads
 		for (uint i = blockDim.x / 2; i != 0; i /= 2) {
-#if __CUDA__ == 0
-			for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-				thIdx = threadIdx.x;
-#endif
-
-				if (thIdx < i)
-					if (sh_bestSum[thIdx] > sh_bestSum[thIdx + i]) {
-						sh_bestSum[thIdx] = sh_bestSum[thIdx + i];
-						sh_bestPos[thIdx] = sh_bestPos[thIdx + i];
-					}
-
-#if __CUDA__ == 0
-			}
-#elif __CUDA__ == 1
-				__syncthreads();
-#endif
-		}
-
-#if __CUDA__ == 0
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-			thIdx = threadIdx.x;
-#endif
-
-			// 4. update haplotype with new best haplo
-			bestSum = sh_bestSum[0];
-			bestPos = sh_bestPos[0];
-			if (*haplo_sumD - bestSum > EPSILON) {
-				isImp = true;
-				rval = 1;
-				for (int i = thIdx; i <= bestPos; i += blockDim.x)
-					haplo_seq[i] = (haplo_seq[i] == '0') ? '1' : '0';	// toggling
-				// haplo_sumD is upated in calc_sumD() of the next while loop
-			}
-
-#if __CUDA__ == 0
-		}
-#elif __CUDA__ == 1
+			if (thIdx < i)
+				if (sh_bestSum[thIdx] > sh_bestSum[thIdx + i]) {
+					sh_bestSum[thIdx] = sh_bestSum[thIdx + i];
+					sh_bestPos[thIdx] = sh_bestPos[thIdx + i];
+				}
 			__syncthreads();
-#endif
+		}
+
+		// 4. update haplotype with new best haplo
+		bestSum = sh_bestSum[0];
+		bestPos = sh_bestPos[0];
+		if (*haplo_sumD - bestSum > EPSILON) {
+			isImp = true;
+			rval = 1;
+			for (int i = thIdx; i <= bestPos; i += blockDim.x)
+				haplo_seq[i] = (haplo_seq[i] == '0') ? '1' : '0';	// toggling
+			// haplo_sumD is upated in calc_sumD() of the next while loop
+		}
+		__syncthreads();
 
 	} while (isImp);		// same values in all threads
 
@@ -1001,221 +762,134 @@ int range_switch_toggling_thread(
 // Toggling for range switch
 // return 1 if better soultion is found
 //
-#if __CUDA__ == 1
 __device__
-#endif
 int single_switch_toggling_thread(
-#if __CUDA__ == 0
-	const dim3 gridDim, const dim3 blockDim,
-#endif
 	double *haplo_sumD, char *haplo_seq, DFragType *DFrag, const BlockType &block,
 	double sh_bestSum[], int sh_bestPos[],
 	const char *d_AlleleData, const double *d_QualData, const SubFragType *d_SubFragments, const FragType *d_Fragments,
 	const FragsForPosType *d_FragsForPos, const uint NumFrag, const uint phasing_iter)
 {
-#if __CUDA__ == 0
-	dim3 threadIdx = { 1, 1, 1 };
-#endif
-
 	uint thIdx = threadIdx.x;	// index for shared memory
 	double bestSum, tmpSum;
 	int bestPos, rval = 0;
 	bool isImp;
 
 	do {
-
-#if __CUDA__ == 0
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-			thIdx = threadIdx.x;
-#endif
-
-			// 1. compute sumD & DFrag;
-			isImp = false;
-			if (thIdx == 0) {
-				calc_sumD(haplo_sumD, haplo_seq, DFrag, block, true,
-					d_AlleleData, d_QualData, d_SubFragments, d_Fragments);	// update DFrag array for the current haplotype sequence
-			}
-
-#if __CUDA__ == 0
+		// 1. compute sumD & DFrag;
+		isImp = false;
+		if (thIdx == 0) {
+			calc_sumD(haplo_sumD, haplo_seq, DFrag, block, true,
+				d_AlleleData, d_QualData, d_SubFragments, d_Fragments);	// update DFrag array for the current haplotype sequence
 		}
-#elif __CUDA__ == 1
-			__syncthreads();
-#endif
+		__syncthreads();
 
-#if __CUDA__ == 0
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-			thIdx = threadIdx.x;
-#endif
+		// 2. compute sumD in each toggled position계산 해서 최소값 찾기 (paralled by thread)
+		bestSum = *haplo_sumD;
+		bestPos = -1;
 
-			// 2. compute sumD in each toggled position계산 해서 최소값 찾기 (paralled by thread)
-			bestSum = *haplo_sumD;
-			bestPos = -1;
+		for (uint i = thIdx; i < block.length; i += blockDim.x) {
 
-			for (uint i = thIdx; i < block.length; i += blockDim.x) {
+			tmpSum = calc_sumD_single_tog(haplo_sumD, haplo_seq, DFrag, block, i, false,
+				d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos); // DFrag array & haplo are NOT updated
 
-				tmpSum = calc_sumD_single_tog(haplo_sumD, haplo_seq, DFrag, block, i, false,
-					d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos); // DFrag array & haplo are NOT updated
-
-				if (bestSum > tmpSum) {
-					bestSum = tmpSum;
-					bestPos = i;
-				}
+			if (bestSum > tmpSum) {
+				bestSum = tmpSum;
+				bestPos = i;
 			}
-
-			sh_bestSum[thIdx] = bestSum;
-			sh_bestPos[thIdx] = bestPos;
-
-#if __CUDA__ == 0
 		}
-#elif __CUDA__ == 1
-			__syncthreads();
-#endif
+
+		sh_bestSum[thIdx] = bestSum;
+		sh_bestPos[thIdx] = bestPos;
+
+		__syncthreads();
 
 
 		// 3. find the best sumD in all threads
 		for (uint i = blockDim.x / 2; i != 0; i /= 2) {
-#if __CUDA__ == 0
-			for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-				thIdx = threadIdx.x;
-#endif
 
-				if (thIdx < i)
-					if (sh_bestSum[thIdx] > sh_bestSum[thIdx + i]) {
-						sh_bestSum[thIdx] = sh_bestSum[thIdx + i];
-						sh_bestPos[thIdx] = sh_bestPos[thIdx + i];
-					}
+			if (thIdx < i)
+				if (sh_bestSum[thIdx] > sh_bestSum[thIdx + i]) {
+					sh_bestSum[thIdx] = sh_bestSum[thIdx + i];
+					sh_bestPos[thIdx] = sh_bestPos[thIdx + i];
+				}
 
-#if __CUDA__ == 0
-			}
-#elif __CUDA__ == 1
-				__syncthreads();
-#endif
-		}
-
-#if __CUDA__ == 0
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) {	// position is grouped by thread
-			thIdx = threadIdx.x;
-#endif
-
-			// 4. update haplotype with new best haplo
-			bestSum = sh_bestSum[0];
-			bestPos = sh_bestPos[0];
-			if (*haplo_sumD - bestSum > EPSILON) {
-				isImp = true;
-				rval = 1;
-				if (thIdx == 0)
-					haplo_seq[bestPos] = (haplo_seq[bestPos] == '0') ? '1' : '0';	// toggling
-			}
-
-#if __CUDA__ == 0
-		}
-#elif __CUDA__ == 1
 			__syncthreads();
-#endif
+		}
+
+		// 4. update haplotype with new best haplo
+		bestSum = sh_bestSum[0];
+		bestPos = sh_bestPos[0];
+		if (*haplo_sumD - bestSum > EPSILON) {
+			isImp = true;
+			rval = 1;
+			if (thIdx == 0)
+				haplo_seq[bestPos] = (haplo_seq[bestPos] == '0') ? '1' : '0';	// toggling
+		}
+
+		__syncthreads();
 
 	} while (isImp);		// same values in all threads
 
 	return rval;			// the same values in all threads
 }
 
-#if __CUDA__ == 0
-void Toggling(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 // One PEATH-block is run by OEN CUDA-block,
 // this function is run by MULTI thread
 __global__ void Toggling(
-#endif
 	double *d_Tog_sumD, char *d_Tog_seq, DFragType *d_DFrag,
 	const char *d_AlleleData, const double *d_QualData, const SubFragType *d_SubFragments, const FragType *d_Fragments,
 	const BlockType *d_blocks, const FragsForPosType *d_FragsForPos,
 	const uint NumPos, const uint NumFrag, const uint NumBlk, const uint phasing_iter)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gGim_PBx{ phasing_iter, NumBlk, 1};
-//	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x) // FOR EACH phasing iteration
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // FOR EACH haplotype block
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-#endif
-		{
-			BlockType block = d_blocks[blockIdx.y];	// blockIdx.y is haplotype blk_id
-			uint ph_id = blockIdx.x;
-			double *haplo_sumD = d_Tog_sumD + ph_id * NumBlk + blockIdx.y;
-			char *haplo_seq = d_Tog_seq + ph_id * NumPos + block.start_pos;
-			DFragType *DFrag = d_DFrag + ph_id * NumFrag;
+	BlockType block = d_blocks[blockIdx.y];	// blockIdx.y is haplotype blk_id
+	uint ph_id = blockIdx.x;
+	double *haplo_sumD = d_Tog_sumD + ph_id * NumBlk + blockIdx.y;
+	char *haplo_seq = d_Tog_seq + ph_id * NumPos + block.start_pos;
+	DFragType *DFrag = d_DFrag + ph_id * NumFrag;
+
+	__shared__ double sh_bestSum[CU_MAX_BSIZE];	// best sumD for each thread
+	__shared__ int sh_bestPos[CU_MAX_BSIZE];		// position with best sumD for each thread
 
 
-#if __CUDA__ == 1
-			__shared__
-#endif
-				double sh_bestSum[CU_MAX_BSIZE];	// best sumD for each thread
-#if __CUDA__ == 1
-			__shared__
-#endif
-				int sh_bestPos[CU_MAX_BSIZE];		// position with best sumD for each thread
+	uint tog_iter = TOG_ITER;			// toggling iteration number
+	while (tog_iter--) {
+		uint imp = 0;
+
+		// Step 1: Range Switch Toggling
+		imp += range_switch_toggling_thread(	// faster (quite)
+				haplo_sumD, haplo_seq, DFrag, block,
+				sh_bestSum, sh_bestPos,
+				d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos, NumFrag, NumFrag);
 
 
-			uint tog_iter = TOG_ITER;			// toggling iteration number
-			while (tog_iter--) {
-				uint imp = 0;
+		// Step 2: Single Switch Toggling
+		imp += single_switch_toggling_thread(
+				haplo_sumD, haplo_seq, DFrag, block,
+				sh_bestSum, sh_bestPos,
+				d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos, NumFrag, NumFrag);
 
-				// Step 1: Range Switch Toggling
-				imp += range_switch_toggling_thread(	// faster (quite)
-#if __CUDA__ == 0
-					gridDim, blockDim,
-#endif
-					haplo_sumD, haplo_seq, DFrag, block,
-					sh_bestSum, sh_bestPos,
-					d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos, NumFrag, NumFrag);
-
-
-				// Step 2: Single Switch Toggling
-				imp += single_switch_toggling_thread(
-#if __CUDA__ == 0
-					gridDim, blockDim,
-#endif
-					haplo_sumD, haplo_seq, DFrag, block,
-					sh_bestSum, sh_bestPos,
-					d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_FragsForPos, NumFrag, NumFrag);
-
-				if (!imp) break;				// if not improved, stop
-			}
-
-		}
+		if (!imp) break;				// if not improved, stop
+	}
 }
 
 
-#if __CUDA__ == 0
-void Find_BestHaplo(const dim3 gridDim, const dim3 blockDim,
-#elif __CUDA__ == 1
 __global__ void Find_BestHaplo(
-#endif
 	double *d_Tog_sumD, char *d_Tog_seq,
 	const BlockType *block,
 	const uint NumPos, const uint NumBlk, const uint phasing_iter)
 {
-#if __CUDA__ == 0
-	dim3 blockIdx;		// gridDim = gDim_Bxx{ (NumBlk - 1) / bDim.x + 1, 1, 1 };
-	dim3 threadIdx;		// blockDim = {cu_bsize, 1, 1};
-	for (blockIdx.x = 0; blockIdx.x < gridDim.x; ++blockIdx.x)  // FOR EACH group of haplotype blocks
-	for (blockIdx.y = 0; blockIdx.y < gridDim.y; ++blockIdx.y) // 1
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; ++blockIdx.z) // 1
-		for (threadIdx.x = 0; threadIdx.x < blockDim.x; ++threadIdx.x) // For EACH haplotype block in a thread-group
-#endif
-		{
-			uint blk_id = blockIdx.x * blockDim.x + threadIdx.x;
-			if (blk_id >= NumBlk) return;
+	uint blk_id = blockIdx.x * blockDim.x + threadIdx.x;
+	if (blk_id >= NumBlk) return;
 
-			uint min_phid = 0;
-			for (uint i = 1; i < phasing_iter; ++i)
-				if (d_Tog_sumD[min_phid * NumBlk + blk_id] > d_Tog_sumD[i * NumBlk + blk_id])
-					min_phid = i;
+	uint min_phid = 0;
+	for (uint i = 1; i < phasing_iter; ++i)
+		if (d_Tog_sumD[min_phid * NumBlk + blk_id] > d_Tog_sumD[i * NumBlk + blk_id])
+			min_phid = i;
 
-			d_Tog_sumD[blk_id] = d_Tog_sumD[min_phid * NumBlk + blk_id];	// copy to 0th phasing iteration
-			memcpy(d_Tog_seq + block[blk_id].start_pos,
-				d_Tog_seq + NumPos * min_phid + block[blk_id].start_pos,
-				block[blk_id].length * sizeof(char));
-		}
+	d_Tog_sumD[blk_id] = d_Tog_sumD[min_phid * NumBlk + blk_id];	// copy to 0th phasing iteration
+	memcpy(d_Tog_seq + block[blk_id].start_pos,
+		d_Tog_seq + NumPos * min_phid + block[blk_id].start_pos,
+		block[blk_id].length * sizeof(char));
 }
 
 
@@ -1249,15 +923,12 @@ void haplotype_phasing_iter(double *h_BestHaplo_sumD, char *h_BestHaplo_seq,
 	///////////////////////////////////////////
 
 	uint cu_bsize = CU_MAX_BSIZE;
+//	uint cu_bsize = CB_SIZE;
 
 	dim3 bDim = { cu_bsize, 1 , 1 };
 	dim3 gDim_PBx = { phasing_iter, NumBlk, 1 };
 
-#if __CUDA__ == 0
-	Toggling(gDim_PBx, bDim,
-#elif __CUDA__ == 1
 	Toggling <<< gDim_PBx, bDim >>> (
-#endif
 		d_Tog_sumD, d_Tog_seq, d_DFrag,
 		d_AlleleData, d_QualData, d_SubFragments, d_Fragments, d_blocks, d_FragsForPos,
 		NumPos, NumFrag, NumBlk, phasing_iter);
@@ -1270,19 +941,11 @@ void haplotype_phasing_iter(double *h_BestHaplo_sumD, char *h_BestHaplo_seq,
 
 	dim3 gDim_Bxx = { (NumBlk - 1) / bDim.x + 1, 1, 1 };
 
-#if __CUDA__ == 0
-	Find_BestHaplo(gDim_Bxx, bDim,
-#elif __CUDA__ == 1
 	Find_BestHaplo <<< gDim_Bxx, bDim >>> (
-#endif
 		d_Tog_sumD, d_Tog_seq, d_blocks, NumPos, NumBlk, phasing_iter);
 
 
 	// memory copy h_BestHaplo <- d_Tog
-#if __CUDA__ == 0
-	memcpy(h_BestHaplo_sumD, d_Tog_sumD, NumBlk * sizeof(double));
-	memcpy(h_BestHaplo_seq, d_Tog_seq, NumPos * sizeof(char));
-#elif __CUDA__ == 1
 	cudaError_t cudaStatus;
 	cudaStatus = cudaMemcpy(h_BestHaplo_sumD, d_Tog_sumD, NumBlk * sizeof(double), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess) {
@@ -1292,8 +955,6 @@ void haplotype_phasing_iter(double *h_BestHaplo_sumD, char *h_BestHaplo_seq,
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "[phasing-Haplo_seq] cudaMemcpy failed!");
 	}
-#endif
-
 }
 
 
@@ -1652,30 +1313,6 @@ void allocate(double *&h_BestHaplo_sumD, char *&h_BestHaplo_seq, char *&h_Covere
 	h_BestHaplo2.seq = new char[(MaxBlkLen + 1)];
 	h_BestHaplo2.seq2 = new char[(MaxBlkLen + 1)];
 
-
-
-
-#if __CUDA__ == 0
-
-	d_AlleleData = h_AlleleData;
-	d_QualData = h_QualData;
-	d_SubFragments = h_SubFragments;
-	d_Fragments = h_Fragments;
-	d_Blocks = h_Blocks;
-	d_FragsForPos = h_FragsForPos;
-
-	d_Tog_sumD = new double[phasing_iter * NumBlk];		// [ph_id][blk_id]
-	d_Tog_seq = new char[phasing_iter * NumPos];		// [ph_id][pos_id]
-	d_Population = new IndvDType[phasing_iter * NumBlk * POPSIZE];	//[ph_id][blk_id][POP_id]
-	d_Pop_seq = new char[phasing_iter * NumPos * POPSIZE];		// [ph_idx][pos_idx][POP_idx]
-
-	d_GAcnt = new uint[phasing_iter * NumPos];		// [ph_id][pos_id]
-	d_DFrag = new DFragType[phasing_iter * NumFrag];	// [ph_id][frag_id]
-
-	d_randstates = new curandState[phasing_iter * NumBlk];
-
-#elif __CUDA__ == 1
-
 	cudaError_t cudaStatus;
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
@@ -1779,10 +1416,7 @@ void allocate(double *&h_BestHaplo_sumD, char *&h_BestHaplo_seq, char *&h_Covere
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "[RandStates]cudaMalloc failed!");
 	}
-
-#endif
 }
-
 
 void deallocate(char *h_AlleleData, double *h_QualData, FragType *h_Fragments, FragsForPosType *h_FragsForPos,
 	double *h_BestHaplo_sumD, char *h_BestHaplo_seq, char *h_Covered, HaploType h_BestHaplo2,
@@ -1800,21 +1434,7 @@ void deallocate(char *h_AlleleData, double *h_QualData, FragType *h_Fragments, F
 
 	delete[] h_Covered;
 
-
 	// memory deallocation for device
-#if __CUDA__ == 0
-
-	delete[] d_Tog_sumD;
-	delete[] d_Tog_seq;
-	delete[] d_Population;
-	delete[] d_Pop_seq;
-
-	delete[] d_GAcnt;
-	delete[] d_DFrag;
-
-	delete[] d_randstates;
-
-#elif __CUDA__ == 1
 
 	cudaFree(d_AlleleData);
 	cudaFree(d_QualData);
@@ -1833,10 +1453,8 @@ void deallocate(char *h_AlleleData, double *h_QualData, FragType *h_Fragments, F
 	cudaFree(d_DFrag);
 
 	cudaFree(d_randstates);
-#endif
 
 }
-
 
 ////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////
@@ -2070,13 +1688,9 @@ int main(int argc, char ** argv)
 		}
 	}
 
-
-
 	procedure(matrixFileName, outputFileName, phasing_iter);		//// main procedure
 
-#if __CUDA__ == 1
 //	cout << endl << "-- Run by CUDA!!! -- cuda block size : " << CU_MAX_BSIZE << endl << endl;
-#endif
 
 	return 0;
 }

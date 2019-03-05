@@ -3,7 +3,7 @@
 PEATH/G is a GPGPU version of PEATH, a novel SIH algorithm based on the estimation of distribution algorithm (EDA).
 It implementes the method proposed in:
 ```
-J.C. Na et al., PEATH/G: Fast Single-Individual Haplotyping method using GPGPU, submitted to TBC/BIOINFO 2018.
+J.C. Na et al., PEATH/G: Fast Single-Individual Haplotyping method using GPGPU.
 ```
 
 ## System Environment 

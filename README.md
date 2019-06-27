@@ -13,7 +13,7 @@ J.C. Na et al., PEATH/G: Fast Single-Individual Haplotyping method using GPGPU.
 We have tested for compiling and running the code in conventional desktop computer as follows:
 - Hardware: Intel Core i5, 16GB RAM, and NVIDIA GeForce GTX950 graphics card.
 - OS: Windows 10 64-bits
-- IDE: Visual Studio 2017 integrated with CUDA toolkit 9.2
+- IDE: Visual Studio 2017 integrated with CUDA toolkit 10.1
 
 ## Compiling PEATH/G
 

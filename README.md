@@ -20,7 +20,8 @@ We have tested for compiling and running the code in conventional desktop comput
 After downloading .cu code, complie the source code using NVCC compiler
 
 ```
-nvcc -o PEATH-G PEATH-G.cu
+nvcc -o PEATH-G PEATH-G.cu -arch=sm_35 -rdc=true -lcudadevrt
+
 ```
 
 ## Running PEATH/G

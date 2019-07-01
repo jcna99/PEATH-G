@@ -965,8 +965,6 @@ void haplotype_phasing(double *h_BestHaplo_sumD, char *h_BestHaplo_seq,
 {
 	cudaError_t  cudaStatus;
 
-	cudaSetDevice(CU_DEVICE);
-
 	///////////////////////////////////////////
 	// Step 1: Allocating global memory for temporary space used in device
 	///////////////////////////////////////////
@@ -1501,14 +1499,12 @@ void allocate(double *&h_BestHaplo_sumD, char *&h_BestHaplo_seq, char *&h_Covere
 	h_BestHaplo2.seq2 = new char[(MaxBlkLen + 1)];
 
 
-
-
 	cudaError_t cudaStatus;
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
-	cudaStatus = cudaSetDevice(0);
+	cudaStatus = cudaSetDevice(CU_DEVICE);
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+		fprintf(stderr, "cudaSetDevice failed! Device %d\n", CU_DEVICE);
 	}
 
 	//

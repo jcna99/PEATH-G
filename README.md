@@ -15,6 +15,8 @@ We have tested for compiling and running the code in conventional desktop comput
 - OS: Windows 10 64-bits
 - IDE: Visual Studio 2017 integrated with CUDA toolkit 10.1
 
+Our program works well also in Ubunu Linix 64-bits with other Graphic cards, e.g., GTX 1050 and GTX 1660Ti.
+
 ## Compiling PEATH/G
 
 After downloading .cu code, complie the source code using NVCC compiler
